@@ -1,0 +1,21 @@
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# macOS Trash folder
+.Trashes/
+
+# Temporary and compiled files
+*.o
+*.out
+*.bin
+*.hex
+*.exe
+
+# Build artifacts
+/build/
+/tmp/
+
+# Editor and IDE files
+.vscode/
