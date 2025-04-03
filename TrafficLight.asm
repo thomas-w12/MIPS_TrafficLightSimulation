@@ -221,14 +221,8 @@ ns_red:
         sw $t0, NS_light    # NS goes yellow
         li $t0, 0
         sw $t0, EW_light    # EW stays red
-        jal display_lights
-        lw $a0, yellow_duration_ns
-        jal delay
-
-        li $t0, 1
-        sw $t0, NS_light    # NS goes green
-        li $t0, 0
-        sw $t0, EW_light    # EW goes red
+        li $t0, 0 
+        sw $t0, next_green_light # NS is next green light
         j simulation_loop
 
 
@@ -279,13 +273,8 @@ ns_yellow:
     sw $t0, EW_light    # EW goes yellow
     li $t0, 0
     sw $t0, NS_light    # NS stay red
-    jal display_lights
-    lw $a0, yellow_duration_ew
-    jal delay
     li $t0, 1
-    sw $t0, EW_light    # EW goes green
-    li $t0, 0
-    sw $t0, NS_light    # NS goes red
+    sw $t0, next_green_light # EW is next green light
     j simulation_loop
 
     continue_ns_yellow:
