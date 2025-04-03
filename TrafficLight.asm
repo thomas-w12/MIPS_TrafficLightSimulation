@@ -58,6 +58,7 @@
     # Traffic light states
     NS_light: .word 0  # 0=red, 1=green, 2=yellow
     EW_light: .word 1  # Opposite of NS
+    next_green_light: .word 0  # Next green light state (0=NS, 1=EW)
     # Button pressed state
     button_pressed: .word 0  # 0=not pressed, 1=pressed
 
@@ -192,7 +193,8 @@ ns_red:
         # Change to yellow
         li $t0, 2
         sw $t0, EW_light
-        
+        li $t0, 0
+        sw $t0, next_green_light # NS is next green light
         # increment loop count
         addi $s0, $s0, 1
 
@@ -202,8 +204,12 @@ ns_red:
         lw $a0, yellow_duration_ew
         jal delay
 
+        # check if yellow is before red light or before green light
+        lw $t0, next_green_light
+        bnez $t0, switch_ew_to_green # if next green light is EW, switch to green
 
-        # switch_ew_to_red:
+
+        switch_ew_to_red:
 
         # check if button was pressed and turn on pedestrian light
         jal pedestrian_crossing_check
@@ -228,19 +234,21 @@ ns_red:
 
         continue_ew_yellow:
         # Change both lights
-        li $t0, 1
-        sw $t0, NS_light    # NS goes green
+        li $t0, 2
+        sw $t0, NS_light    # NS goes yellow
         li $t0, 0
         sw $t0, EW_light    # EW goes red
+        li $t0, 0
+        sw $t0, next_green_light # NS is next green light
         j simulation_loop
 
 
-        # switch_ew_to_green:
-        # li $t0, 1
-        # sw $t0, EW_light    # EW goes green
-        # li $t0, 0
-        # sw $t0, NS_light    # NS goes red
-        # jal simulation_loop
+        switch_ew_to_green:
+        li $t0, 1
+        sw $t0, EW_light    # EW goes green
+        li $t0, 0
+        sw $t0, NS_light    # NS goes red
+        jal simulation_loop
 
 ns_green:
     lw $a0, green_duration_ns
@@ -248,11 +256,19 @@ ns_green:
     # Change to yellow
     li $t0, 2
     sw $t0, NS_light
+    li $t0, 1
+    sw $t0, next_green_light # EW is next green light
     j simulation_loop
 
 ns_yellow:
     lw $a0, yellow_duration_ns
     jal delay
+
+    # check if yellow is before red light or before green light
+    lw $t0, next_green_light
+    beqz $t0, switch_ns_to_green # if next green light is EW, switch to green
+
+    switch_ns_to_red:
 
     # check if button was pressed and turn on pedestrian light
     jal pedestrian_crossing_check
@@ -277,10 +293,18 @@ ns_yellow:
     # Change both lights
     li $t0, 0
     sw $t0, NS_light        # NS goes red
+    li $t0, 2
+    sw $t0, EW_light        # EW goes yellow
     li $t0, 1
-    sw $t0, EW_light        # EW goes red
-
+    sw $t0, next_green_light # EW is next green light
     j simulation_loop
+
+    switch_ns_to_green:
+    li $t0, 1
+    sw $t0, NS_light    # NS goes green
+    li $t0, 0
+    sw $t0, EW_light    # EW goes red
+    jal simulation_loop
 
 # Display current light states
 display_lights:
