@@ -1,17 +1,18 @@
 .data
     # Light durations (in milliseconds)
-    green_duration_ns:  .word 10000
-    green_duration_ew:  .word 10000
+    green_duration_ns:  .word 5000
+    green_duration_ew:  .word 5000
     yellow_duration_ns: .word 3000
     yellow_duration_ew: .word 3000
     pedestrian_duration: .word 5000
+    pedestrian_delay: .word 2000
     
     # Speed limits (in km/h)
     speed_limit_ns:     .word 50
     speed_limit_ew:     .word 50
 
     # loop repetitions
-    loop_repetitions: .word 5
+    loop_repetitions: .word 1
     
     # Messages
     newline: .asciiz "\n"
@@ -25,8 +26,10 @@
     adjusted_green_ew: .asciiz "East-West Green Duration (ms): "
     adjusted_yellow_ns: .asciiz "North-South Yellow Duration (ms): "
     adjusted_yellow_ew: .asciiz "East-West Yellow Duration (ms): "
-    adjusted_speed: .asciiz "Speed Limit (North-South): "
-    adjusted_speed_value: .asciiz " km/h\n"
+    adjusted_pedestrian: .asciiz "Pedestrian Crossing Duration (ms): "
+    adjusted_speed_ns: .asciiz "Speed Limit (North-South): "
+    adjusted_speed_ew: .asciiz "Speed Limit (East-West): "
+    adjusted_speed_unit: .asciiz " km/h\n"
     invalid_duration_msg: .asciiz "Invalid duration. Please enter a value greater than 0.\n"
 
     # Prompt messages
@@ -39,6 +42,7 @@
     invalid_speed_msg: .asciiz "Invalid speed limit. Please enter a value between 30 and 100.\n"
     prompt_green_ns: .asciiz "Enter green duration for north-south road (s): "
     prompt_green_ew: .asciiz "Enter green duration for east-west road (s): "
+    prompt_pedestrian: .asciiz "Enter pedestrian crossing duration (s): "
     prompt_button: .asciiz "Do you want to press the button to request a pedestrian crossing? [Y/N]: "
 
     
@@ -49,14 +53,14 @@
     separator: .asciiz " | "
 
     # Pedestrian light states
-    pedestrian_red_msg: .asciiz "Pedestrian RED"
-    pedestrian_green_msg: .asciiz "Pedestrian GREEN"
+    pedestrian_signal_msg: .asciiz "Pedestrian Signal: "
     
     # Traffic light states
     NS_light: .word 0  # 0=red, 1=green, 2=yellow
     EW_light: .word 1  # Opposite of NS
     # Button pressed state
     button_pressed: .word 0  # 0=not pressed, 1=pressed
+
     
 .text
 .globl main
@@ -145,53 +149,30 @@ start_simulation:
     sw $t0, EW_light        # EW starts with green
     
     # initialize loop count
-    li $s0, 0
+    li $s0, -1
+    li $s1, -1 # old loop count
 
 simulation_loop:
-
-    # Display current light states
-    jal display_lights
 
     # if loop has run for the specified number of iterations, go to end
     lw $t0, loop_repetitions
     beq $s0, $t0, end_simulation
 
-    # # check if one cycle has completed
-    # srl $t1, $s0, 2
-    # li $t2, 4
-    # div $t1, $t2
-    # mfhi $t3 # check if remainder is 0
-    # bnez $t3, increment_loop
+    # check if one cycle has completed
+    sub $t0, $s0, $s1
+    beqz $t0, in_light_cycle
+    
+    light_cycle_completed:
+    addi $s1, $s1, 1
+    jal prompt_pedestrian_button
 
+    in_light_cycle:
 
-    # li $v0, 4
-    # la $a0, prompt_button
-    # syscall
-    # li $v0, 12 #
-    # syscall
-    # move $t0, $v0
-    # # Print newline
-    # li $v0, 4
-    # la $a0, newline
-    # syscall
-
-    # # Check if user pressed the button
-    # bne $t0, 'Y', increment_loop
-    # bne $t0, 'y', increment_loop
-    # # If not pressed, continue with the simulation
-
-    # # Set button pressed state
-    # li $t0, 1
-    # sw $t0, button_pressed
-
-
-
-    increment_loop:
-    # increment loop count
-    # addi $s0, $s0, 1
+    # Display current light states
+    jal display_lights
 
     
-    
+
     # Determine which lights are active and delay accordingly
     lw $t0, NS_light
     beq $t0, 0, ns_red
@@ -211,21 +192,55 @@ ns_red:
         # Change to yellow
         li $t0, 2
         sw $t0, EW_light
+        
+        # increment loop count
+        addi $s0, $s0, 1
+
         j simulation_loop
     
     ew_yellow:
         lw $a0, yellow_duration_ew
         jal delay
 
-        # check if button was pressed and turn on pedestrian light
-        # jal pedestrian_crossing_check
 
+        # switch_ew_to_red:
+
+        # check if button was pressed and turn on pedestrian light
+        jal pedestrian_crossing_check
+        
+        beqz $v0, continue_ew_yellow # if pedestrian crossing not requested, continue with yellow light
+
+        # if pedestrian crossing happened, make ns green
+        li $t0, 2
+        sw $t0, NS_light    # NS goes yellow
+        li $t0, 0
+        sw $t0, EW_light    # EW stays red
+        jal display_lights
+        lw $a0, yellow_duration_ns
+        jal delay
+
+        li $t0, 1
+        sw $t0, NS_light    # NS goes green
+        li $t0, 0
+        sw $t0, EW_light    # EW goes red
+        j simulation_loop
+
+
+        continue_ew_yellow:
         # Change both lights
         li $t0, 1
         sw $t0, NS_light    # NS goes green
         li $t0, 0
         sw $t0, EW_light    # EW goes red
         j simulation_loop
+
+
+        # switch_ew_to_green:
+        # li $t0, 1
+        # sw $t0, EW_light    # EW goes green
+        # li $t0, 0
+        # sw $t0, NS_light    # NS goes red
+        # jal simulation_loop
 
 ns_green:
     lw $a0, green_duration_ns
@@ -238,14 +253,32 @@ ns_green:
 ns_yellow:
     lw $a0, yellow_duration_ns
     jal delay
+
+    # check if button was pressed and turn on pedestrian light
+    jal pedestrian_crossing_check
+    beqz $v0, continue_ns_yellow # if pedestrian crossing not requested, continue with yellow light
+
+    # if pedestrian crossing happened, make ew green
+    li $t0, 2
+    sw $t0, EW_light    # EW goes yellow
+    li $t0, 0
+    sw $t0, NS_light    # NS stay red
+    jal display_lights
+    lw $a0, yellow_duration_ew
+    jal delay
+    li $t0, 1
+    sw $t0, EW_light    # EW goes green
+    li $t0, 0
+    sw $t0, NS_light    # NS goes red
+    j simulation_loop
+
+    continue_ns_yellow:
+    
     # Change both lights
     li $t0, 0
     sw $t0, NS_light        # NS goes red
     li $t0, 1
-    sw $t0, EW_light        # EW goes green
-
-    # increment loop count
-    addi $s0, $s0, 1
+    sw $t0, EW_light        # EW goes red
 
     j simulation_loop
 
@@ -400,21 +433,21 @@ adjust_parameters:
             mul $v0, $v0, 1000  # convert to milliseconds
             sw $v0, green_duration_ew
 
-        # # adjust yellow duration in percentage of green duration (25%)
-        # lw $t0, green_duration_ns
-        # srl $t0, $t0, 2  # divide by 4
-        # bge $t0, 2000, set_yellow_ns # if yellow duration is greater than 3000ms, set it to 3000ms
-        # li $t0, 2000 # minimum yellow duration
-        # set_yellow_ns:
-        #     sw $t0, yellow_duration_ns
-
-        # lw $t0, green_duration_ew
-        # srl $t0, $t0, 2  # divide by 4
-        # bge $t0, 2000, set_yellow_ew # if yellow duration is greater than 3000ms, set it to 3000ms
-        # li $t0, 2000 # minimum yellow duration
-        # set_yellow_ew:
-        #     sw $t0, yellow_duration_ew
-
+        # get pedestrian duration
+        light_duration_adjustment_pedestrian:
+        li $v0, 4
+        la $a0, prompt_pedestrian
+        syscall
+        li $v0, 5
+        syscall
+        bnez $v0, valid_duration_pedestrian
+        li $v0, 4
+        la $a0, invalid_duration_msg
+        syscall
+        j light_duration_adjustment_pedestrian
+        valid_duration_pedestrian:
+            mul $v0, $v0, 1000  # convert to milliseconds
+            sw $v0, pedestrian_duration
 
         # Adjust yellow duration based on speed limit
         lw $t0, speed_limit_ns
@@ -437,11 +470,16 @@ adjust_parameters:
         srl $t3, $t3, 10
         sw $t3, yellow_duration_ew
 
+
     jr $ra
 
 
 # Print parameters
 print_parameters:
+    li $v0, 4
+    la $a0, newline # Print newline
+    syscall
+    # print green duration for north-south
     li $v0, 4
     la $a0, adjusted_msg
     syscall
@@ -451,29 +489,29 @@ print_parameters:
     li $v0, 1
     lw $a0, green_duration_ns
     syscall
-    # Print newline
     li $v0, 4
-    la $a0, newline
+    la $a0, newline # Print newline
     syscall
+    # print green duration for east-west
     li $v0, 4
     la $a0, adjusted_green_ew
     syscall
     li $v0, 1
     lw $a0, green_duration_ew
     syscall
-    # Print newline
     li $v0, 4
-    la $a0, newline
+    la $a0, newline # Print newline
     syscall
+    # print yellow duration for north-south
     li $v0, 4
     la $a0, adjusted_yellow_ns
     syscall
     li $v0, 1
     lw $a0, yellow_duration_ns
     syscall
-    # Print newline
     li $v0, 4
-    la $a0, newline
+    la $a0, newline # Print newline
+    # print yellow duration for east-west
     syscall
     li $v0, 4
     la $a0, adjusted_yellow_ew
@@ -481,29 +519,77 @@ print_parameters:
     li $v0, 1
     lw $a0, yellow_duration_ew
     syscall
-    # Print newline
     li $v0, 4
-    la $a0, newline
+    la $a0, newline # Print newline
+    syscall
+    # print pedestrian duration
+    li $v0, 4
+    la $a0, adjusted_pedestrian
+    syscall
+    li $v0, 1
+    lw $a0, pedestrian_duration
     syscall
     li $v0, 4
-    la $a0, adjusted_speed
+    la $a0, newline # Print newline
+    syscall
+    # print speed limit for north-south
+    li $v0, 4
+    la $a0, adjusted_speed_ns
     syscall
     li $v0, 1
     lw $a0, speed_limit_ns
     syscall
     li $v0, 4
-    la $a0, adjusted_speed_value
+    la $a0, adjusted_speed_unit
     syscall
+    # print speed limit for east-west
+    li $v0, 4
+    la $a0, adjusted_speed_ew
+    syscall
+    li $v0, 1
+    lw $a0, speed_limit_ew
+    syscall
+    li $v0, 4
+    la $a0, adjusted_speed_unit
+    syscall
+
+    li $v0, 4
+    la $a0, newline # Print newline
+    syscall
+
+    jr $ra
+
+prompt_pedestrian_button:
+    li $v0, 4
+    la $a0, prompt_button
+    syscall
+    li $v0, 12 #
+    syscall
+    move $t0, $v0
     # Print newline
     li $v0, 4
     la $a0, newline
     syscall
 
+    # Check if user pressed the button
+    beq $t0, 'Y', set_button_state
+    beq $t0, 'y', set_button_state
+    # If not pressed, continue with the simulation
+    jr $ra
+
+    set_button_state:
+    # Set button pressed state
+    li $t0, 1
+    sw $t0, button_pressed
     jr $ra
 
 
 # function to check button pressed state and change light states
 pedestrian_crossing_check:
+    # save $ra
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
     lw $t0, button_pressed
     beqz $t0, no_button_pressed
 
@@ -511,23 +597,53 @@ pedestrian_crossing_check:
     li $t0, 0
     sw $t0, NS_light        # NS goes red
     sw $t0, EW_light        # EW goes red
+    jal display_lights
+
+    lw $a0, pedestrian_delay
+    jal delay
 
     # Print pedestrian light state
     li $v0, 4
-    la $a0, pedestrian_green_msg
+    la $a0, pedestrian_signal_msg
     syscall
+    la $a0, green_msg
+    syscall
+    la $a0, newline
+    syscall
+
+
     # Delay for pedestrian crossing
     lw $a0, pedestrian_duration
     jal delay
+
     # Change pedestrian light to red
     li $t0, 0
     sw $t0, button_pressed  # Reset button pressed state
+    
     li $v0, 4
-    la $a0, pedestrian_red_msg
+    la $a0, pedestrian_signal_msg
     syscall
+    la $a0, red_msg
+    syscall
+    la $a0, newline
+    syscall
+    
 
+    # Delay for pedestrian crossing
+    lw $a0, pedestrian_delay
+    jal delay
+
+    # restore $ra
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+
+    # return that pedestrian crossing occured
+    li $v0, 1
+    jr $ra
 
     no_button_pressed:
+    # If button not pressed, just return
+    li $v0, 0
     jr $ra
 
 
