@@ -164,22 +164,18 @@ simulation_loop:
     beqz $t0, in_light_cycle
     
     light_cycle_completed:
-    addi $s1, $s1, 1
-    jal prompt_pedestrian_button
+        addi $s1, $s1, 1
+        jal prompt_pedestrian_button
 
     in_light_cycle:
+        # Display current light states
+        jal display_lights
 
-    # Display current light states
-    jal display_lights
-
-    
-
-    # Determine which lights are active and delay accordingly
-    lw $t0, NS_light
-    beq $t0, 0, ns_red
-    beq $t0, 1, ns_green
-    beq $t0, 2, ns_yellow        
-
+        # Determine which lights are active and delay accordingly
+        lw $t0, NS_light
+        beq $t0, 0, ns_red
+        beq $t0, 1, ns_green
+        beq $t0, 2, ns_yellow        
 
         
 ns_red:
@@ -195,7 +191,9 @@ ns_red:
         sw $t0, EW_light
         li $t0, 0
         sw $t0, next_green_light # NS is next green light
-        # increment loop count
+
+        # increment loop count: since we start with ns_red and ew_green, we need
+        # to increment the loop count here
         addi $s0, $s0, 1
 
         j simulation_loop
@@ -210,39 +208,38 @@ ns_red:
 
 
         switch_ew_to_red:
+            # check if button was pressed and turn on pedestrian light
+            jal pedestrian_crossing_check
+            
+            beqz $v0, continue_ew_yellow # if pedestrian crossing not requested, continue with yellow light
 
-        # check if button was pressed and turn on pedestrian light
-        jal pedestrian_crossing_check
-        
-        beqz $v0, continue_ew_yellow # if pedestrian crossing not requested, continue with yellow light
-
-        # if pedestrian crossing happened, make ns green
-        li $t0, 2
-        sw $t0, NS_light    # NS goes yellow
-        li $t0, 0
-        sw $t0, EW_light    # EW stays red
-        li $t0, 0 
-        sw $t0, next_green_light # NS is next green light
-        j simulation_loop
+            # if pedestrian crossing happened, make ns green
+            li $t0, 2
+            sw $t0, NS_light    # NS goes yellow
+            li $t0, 0
+            sw $t0, EW_light    # EW stays red
+            li $t0, 0 
+            sw $t0, next_green_light # NS is next green light
+            j simulation_loop
 
 
-        continue_ew_yellow:
-        # Change both lights
-        li $t0, 2
-        sw $t0, NS_light    # NS goes yellow
-        li $t0, 0
-        sw $t0, EW_light    # EW goes red
-        li $t0, 0
-        sw $t0, next_green_light # NS is next green light
-        j simulation_loop
+            continue_ew_yellow:
+            # Change both lights
+            li $t0, 2
+            sw $t0, NS_light    # NS goes yellow
+            li $t0, 0
+            sw $t0, EW_light    # EW goes red
+            li $t0, 0
+            sw $t0, next_green_light # NS is next green light
+            j simulation_loop
 
 
         switch_ew_to_green:
-        li $t0, 1
-        sw $t0, EW_light    # EW goes green
-        li $t0, 0
-        sw $t0, NS_light    # NS goes red
-        jal simulation_loop
+            li $t0, 1
+            sw $t0, EW_light    # EW goes green
+            li $t0, 0
+            sw $t0, NS_light    # NS goes red
+            jal simulation_loop
 
 ns_green:
     lw $a0, green_duration_ns
@@ -263,37 +260,36 @@ ns_yellow:
     beqz $t0, switch_ns_to_green # if next green light is EW, switch to green
 
     switch_ns_to_red:
+        # check if button was pressed and turn on pedestrian light
+        jal pedestrian_crossing_check
+        beqz $v0, continue_ns_yellow # if pedestrian crossing not requested, continue with yellow light
 
-    # check if button was pressed and turn on pedestrian light
-    jal pedestrian_crossing_check
-    beqz $v0, continue_ns_yellow # if pedestrian crossing not requested, continue with yellow light
+        # if pedestrian crossing happened, make ew green
+        li $t0, 2
+        sw $t0, EW_light    # EW goes yellow
+        li $t0, 0
+        sw $t0, NS_light    # NS stay red
+        li $t0, 1
+        sw $t0, next_green_light # EW is next green light
+        j simulation_loop
 
-    # if pedestrian crossing happened, make ew green
-    li $t0, 2
-    sw $t0, EW_light    # EW goes yellow
-    li $t0, 0
-    sw $t0, NS_light    # NS stay red
-    li $t0, 1
-    sw $t0, next_green_light # EW is next green light
-    j simulation_loop
-
-    continue_ns_yellow:
-    
-    # Change both lights
-    li $t0, 0
-    sw $t0, NS_light        # NS goes red
-    li $t0, 2
-    sw $t0, EW_light        # EW goes yellow
-    li $t0, 1
-    sw $t0, next_green_light # EW is next green light
-    j simulation_loop
+        continue_ns_yellow:
+        
+        # Change both lights
+        li $t0, 0
+        sw $t0, NS_light        # NS goes red
+        li $t0, 2
+        sw $t0, EW_light        # EW goes yellow
+        li $t0, 1
+        sw $t0, next_green_light # EW is next green light
+        j simulation_loop
 
     switch_ns_to_green:
-    li $t0, 1
-    sw $t0, NS_light    # NS goes green
-    li $t0, 0
-    sw $t0, EW_light    # EW goes red
-    jal simulation_loop
+        li $t0, 1
+        sw $t0, NS_light    # NS goes green
+        li $t0, 0
+        sw $t0, EW_light    # EW goes red
+        jal simulation_loop
 
 # Display current light states
 display_lights:
@@ -640,7 +636,6 @@ pedestrian_crossing_check:
     syscall
     la $a0, newline
     syscall
-    
 
     # Delay for pedestrian crossing
     lw $a0, pedestrian_delay
@@ -660,7 +655,6 @@ pedestrian_crossing_check:
     jr $ra
 
 
-
 # Delay subroutine
 delay:
     move $t0, $a0  # Save duration
@@ -673,8 +667,8 @@ delay_loop:
     syscall
     sub $t2, $a0, $t1  # Calculate elapsed time
     blt $t2, $t0, delay_loop  # Loop if elapsed < duration
-    
     jr $ra
+
 
 # End of simulation
 end_simulation: 
