@@ -1,9 +1,9 @@
 .data
     # Light durations (in milliseconds)
-    green_duration_ns:  .word 5000
-    green_duration_ew:  .word 5000
-    yellow_duration_ns: .word 3000
-    yellow_duration_ew: .word 3000
+    green_duration_ns:  .word 10000
+    green_duration_ew:  .word 10000
+    yellow_duration_ns: .word 5000
+    yellow_duration_ew: .word 5000
     pedestrian_duration: .word 5000
     pedestrian_delay: .word 2000
     
@@ -92,56 +92,9 @@ main:
 
 start_simulation:
 
-    # Prompt for number of iterations
-    li $v0, 4
-    la $a0, prompt_iterations
-    syscall
-    li $v0, 5
-    syscall
-    # sll $v0, $v0, 2  # Multiply by 4 to represent actual repetitions
-    sw $v0, loop_repetitions
-
-    # Validate iterations
-    lw $t0, loop_repetitions
-    li $t1, 1
-    blt $t0, $t1, invalid_iterations
-    li $t1, 10
-    bgt $t0, $t1, invalid_iterations
-    j number_of_iterations_input_done
-    invalid_iterations:
-        li $v0, 4
-        la $a0, invalid_iterations_msg
-        syscall
-        j start_simulation
+    jal func_get_iterations  # Get number of iterations from user
     
-
-    number_of_iterations_input_done:
-
-    # Prompt for parameter adjustment
-    li $v0, 4
-    la $a0, prompt_adjust
-    syscall
-    li $v0, 12
-    syscall
-    move $t0, $v0
-    # Print newline
-    li $v0, 4
-    la $a0, newline
-    syscall
-
-    # Check if user wants to adjust parameters
-    beq $t0, 'Y', parameter_adjustment
-    beq $t0, 'y', parameter_adjustment
-    li $v0, 4
-    la $a0, default_params_msg
-    syscall
-    j print_params
-
-    parameter_adjustment:
-        jal adjust_parameters  # Adjust light durations based on user input
-
-    print_params:
-        jal print_parameters  # Print adjusted parameters
+    jal func_get_params  # Get parameters from user
     
     # Initialize light states
     li $t0, 0
@@ -151,8 +104,10 @@ start_simulation:
     
     # initialize loop count
     li $s0, -1
-    li $s1, -1 # old loop count
+    # li $s1, -1 # old loop count
+    li $s2, 1 # prompt for pedestrian button
 
+# simulation loop is the main loop of the program
 simulation_loop:
 
     # if loop has run for the specified number of iterations, go to end
@@ -160,139 +115,139 @@ simulation_loop:
     beq $s0, $t0, end_simulation
 
     # check if one cycle has completed
-    sub $t0, $s0, $s1
-    beqz $t0, in_light_cycle
-    
-    light_cycle_completed:
-        addi $s1, $s1, 1
-        jal prompt_pedestrian_button
+    # sub $t0, $s0, $s1
+    # beqz $t0, in_light_cycle # if not, continue with light cycle
+    # addi $s1, $s1, 1 # if one cycle has completed, increment loop count
+    beqz $s2, in_light_cycle # if not, continue with light cycle
+    jal func_prompt_pedestrian_button # and ask if user wants to press the button
+    li $s2, 0 # reset pedestrian button prompt
 
     in_light_cycle:
-        # Display current light states
-        jal display_lights
+    jal func_display_lights
 
-        # Determine which lights are active and delay accordingly
-        lw $t0, NS_light
-        beq $t0, 0, ns_red
-        beq $t0, 1, ns_green
-        beq $t0, 2, ns_yellow        
+    # Determine which lights are active and delay accordingly
+    lw $t0, NS_light
+    beq $t0, 0, ns_red
+    beq $t0, 1, ns_green
+    beq $t0, 2, ns_yellow        
 
         
-ns_red:
-    lw $t0, EW_light
-    beq $t0, 1, ew_green
-    beq $t0, 2, ew_yellow
-    
-    ew_green:
-        lw $a0, green_duration_ew
-        jal delay
+    ns_red:
+        lw $t0, EW_light
+        beq $t0, 1, ew_green
+        beq $t0, 2, ew_yellow
+        
+        ew_green:
+            lw $a0, green_duration_ew
+            jal func_delay
+            # Change to yellow
+            li $t0, 2
+            sw $t0, EW_light
+            li $t0, 0
+            sw $t0, next_green_light # NS is next green light
+
+            # increment loop count: since we start with ns_red and ew_green, we need
+            # to increment the loop count here
+            addi $s0, $s0, 1
+
+            j simulation_loop
+        
+        ew_yellow:
+            lw $a0, yellow_duration_ew
+            jal func_delay
+
+            # check if yellow is before red light or before green light
+            lw $t0, next_green_light
+            bnez $t0, switch_ew_to_green # if next green light is EW, switch to green
+
+
+            switch_ew_to_red:
+                # check if button was pressed and turn on pedestrian light
+                jal func_pedestrian_crossing_check
+                
+                beqz $v0, skip_pedestrian_ew_yellow # if pedestrian crossing not requested, continue with yellow light
+
+                # if pedestrian crossing happened, make ns green
+                li $t0, 2
+                sw $t0, NS_light    # NS goes yellow
+                li $t0, 0
+                sw $t0, EW_light    # EW stays red
+                li $t0, 0 
+                sw $t0, next_green_light # NS is next green light
+                j simulation_loop
+
+
+                skip_pedestrian_ew_yellow:
+                # Change both lights
+                li $t0, 2
+                sw $t0, NS_light    # NS goes yellow
+                li $t0, 0
+                sw $t0, EW_light    # EW goes red
+                li $t0, 0
+                sw $t0, next_green_light # NS is next green light
+                j simulation_loop
+
+
+            switch_ew_to_green:
+                li $t0, 1
+                sw $t0, EW_light    # EW goes green
+                li $t0, 0
+                sw $t0, NS_light    # NS goes red
+                li $s2, 1 # prompt for pedestrian button 
+                jal simulation_loop
+
+    ns_green:
+        lw $a0, green_duration_ns
+        jal func_delay
         # Change to yellow
         li $t0, 2
-        sw $t0, EW_light
-        li $t0, 0
-        sw $t0, next_green_light # NS is next green light
-
-        # increment loop count: since we start with ns_red and ew_green, we need
-        # to increment the loop count here
-        addi $s0, $s0, 1
-
+        sw $t0, NS_light
+        li $t0, 1
+        sw $t0, next_green_light # EW is next green light
         j simulation_loop
-    
-    ew_yellow:
-        lw $a0, yellow_duration_ew
-        jal delay
+
+    ns_yellow:
+        lw $a0, yellow_duration_ns
+        jal func_delay
 
         # check if yellow is before red light or before green light
         lw $t0, next_green_light
-        bnez $t0, switch_ew_to_green # if next green light is EW, switch to green
+        beqz $t0, switch_ns_to_green # if next green light is EW, switch to green
 
-
-        switch_ew_to_red:
+        switch_ns_to_red:
             # check if button was pressed and turn on pedestrian light
-            jal pedestrian_crossing_check
-            
-            beqz $v0, continue_ew_yellow # if pedestrian crossing not requested, continue with yellow light
+            jal func_pedestrian_crossing_check
+            beqz $v0, skip_pedestrian_ns_yellow # if pedestrian crossing not requested, continue with yellow light
 
-            # if pedestrian crossing happened, make ns green
+            # if pedestrian crossing happened, make ew green
             li $t0, 2
-            sw $t0, NS_light    # NS goes yellow
+            sw $t0, EW_light    # EW goes yellow
             li $t0, 0
-            sw $t0, EW_light    # EW stays red
-            li $t0, 0 
-            sw $t0, next_green_light # NS is next green light
+            sw $t0, NS_light    # NS stay red
+            li $t0, 1
+            sw $t0, next_green_light # EW is next green light
             j simulation_loop
 
-
-            continue_ew_yellow:
+            skip_pedestrian_ns_yellow:
             # Change both lights
+            li $t0, 0
+            sw $t0, NS_light        # NS goes red
             li $t0, 2
-            sw $t0, NS_light    # NS goes yellow
+            sw $t0, EW_light        # EW goes yellow
+            li $t0, 1
+            sw $t0, next_green_light # EW is next green light
+            j simulation_loop
+
+        switch_ns_to_green:
+            li $t0, 1
+            sw $t0, NS_light    # NS goes green
             li $t0, 0
             sw $t0, EW_light    # EW goes red
-            li $t0, 0
-            sw $t0, next_green_light # NS is next green light
-            j simulation_loop
-
-
-        switch_ew_to_green:
-            li $t0, 1
-            sw $t0, EW_light    # EW goes green
-            li $t0, 0
-            sw $t0, NS_light    # NS goes red
             jal simulation_loop
 
-ns_green:
-    lw $a0, green_duration_ns
-    jal delay
-    # Change to yellow
-    li $t0, 2
-    sw $t0, NS_light
-    li $t0, 1
-    sw $t0, next_green_light # EW is next green light
-    j simulation_loop
-
-ns_yellow:
-    lw $a0, yellow_duration_ns
-    jal delay
-
-    # check if yellow is before red light or before green light
-    lw $t0, next_green_light
-    beqz $t0, switch_ns_to_green # if next green light is EW, switch to green
-
-    switch_ns_to_red:
-        # check if button was pressed and turn on pedestrian light
-        jal pedestrian_crossing_check
-        beqz $v0, continue_ns_yellow # if pedestrian crossing not requested, continue with yellow light
-
-        # if pedestrian crossing happened, make ew green
-        li $t0, 2
-        sw $t0, EW_light    # EW goes yellow
-        li $t0, 0
-        sw $t0, NS_light    # NS stay red
-        li $t0, 1
-        sw $t0, next_green_light # EW is next green light
-        j simulation_loop
-
-        continue_ns_yellow:
-        
-        # Change both lights
-        li $t0, 0
-        sw $t0, NS_light        # NS goes red
-        li $t0, 2
-        sw $t0, EW_light        # EW goes yellow
-        li $t0, 1
-        sw $t0, next_green_light # EW is next green light
-        j simulation_loop
-
-    switch_ns_to_green:
-        li $t0, 1
-        sw $t0, NS_light    # NS goes green
-        li $t0, 0
-        sw $t0, EW_light    # EW goes red
-        jal simulation_loop
 
 # Display current light states
-display_lights:
+func_display_lights:
     # Print North-South light
     li $v0, 4
     la $a0, north_south_msg
@@ -351,9 +306,70 @@ display_lights:
     
     jr $ra
 
+# Function to get parameters from user
+func_get_params:
+    # save $ra
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    # Prompt for parameter adjustment
+    li $v0, 4
+    la $a0, prompt_adjust
+    syscall
+    li $v0, 12
+    syscall
+    move $t0, $v0
+    # Print newline
+    li $v0, 4
+    la $a0, newline
+    syscall
+
+    # Check if user wants to adjust parameters
+    beq $t0, 'Y', parameter_adjustment
+    beq $t0, 'y', parameter_adjustment
+    li $v0, 4
+    la $a0, default_params_msg
+    syscall
+    j print_params
+
+    parameter_adjustment:
+        jal func_adjust_parameters  # Adjust light durations based on user input
+
+    print_params:
+        jal func_print_parameters  # Print adjusted parameters
+    
+    # restore $ra
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
+
+# Function to get number of iterations from user
+func_get_iterations:
+    # Prompt for number of iterations
+    li $v0, 4
+    la $a0, prompt_iterations
+    syscall
+    li $v0, 5
+    syscall
+    # sll $v0, $v0, 2  # Multiply by 4 to represent actual repetitions
+    sw $v0, loop_repetitions
+
+    # Validate iterations
+    lw $t0, loop_repetitions
+    li $t1, 1
+    blt $t0, $t1, invalid_iterations
+    li $t1, 10
+    bgt $t0, $t1, invalid_iterations
+    jr $ra
+    invalid_iterations:
+        li $v0, 4
+        la $a0, invalid_iterations_msg
+        syscall
+        j func_get_iterations
+    
+    jr $ra
 
 # function to adjust light durations
-adjust_parameters:
+func_adjust_parameters:
 
     # Get speed limit for north-south road
     speed_adjustment_ns:
@@ -460,31 +476,41 @@ adjust_parameters:
 
         # Adjust yellow duration based on speed limit
         lw $t0, speed_limit_ns
-        sll $t0, $t0, 10
-        li $t1, 50
-        div $t0, $t1
-        mflo $t2                # speed_limit_ns / 50
-        lw $t3, yellow_duration_ns
-        mul $t3, $t3, $t2      # yellow_duration_ns = yellow_duration_ns * (speed_limit_ns / 50)
-        srl $t3, $t3, 10
-        sw $t3, yellow_duration_ns
-
+        li $t1, 100
+        mul $t0, $t0, $t1 # speed_limit_ns * 100 ms
+        sw $t0, yellow_duration_ns
         lw $t0, speed_limit_ew
-        sll $t0, $t0, 10
-        li $t1, 50
-        div $t0, $t1
-        mflo $t2                # speed_limit_ew / 50
-        lw $t3, yellow_duration_ew
-        mul $t3, $t3, $t2      # yellow_duration_ew = yellow_duration_ew * (speed_limit_ns / 50)
-        srl $t3, $t3, 10
-        sw $t3, yellow_duration_ew
+        mul $t0, $t0, $t1 # speed_limit_ew * 100 ms
+        sw $t0, yellow_duration_ew
+
+
+
+        # lw $t0, speed_limit_ns
+        # sll $t0, $t0, 10
+        # li $t1, 50
+        # div $t0, $t1
+        # mflo $t2                # speed_limit_ns / 50
+        # lw $t3, yellow_duration_ns
+        # mul $t3, $t3, $t2      # yellow_duration_ns = yellow_duration_ns * (speed_limit_ns / 50)
+        # srl $t3, $t3, 10
+        # sw $t3, yellow_duration_ns
+
+        # lw $t0, speed_limit_ew
+        # sll $t0, $t0, 10
+        # li $t1, 50
+        # div $t0, $t1
+        # mflo $t2                # speed_limit_ew / 50
+        # lw $t3, yellow_duration_ew
+        # mul $t3, $t3, $t2      # yellow_duration_ew = yellow_duration_ew * (speed_limit_ns / 50)
+        # srl $t3, $t3, 10
+        # sw $t3, yellow_duration_ew
 
 
     jr $ra
 
 
 # Print parameters
-print_parameters:
+func_print_parameters:
     li $v0, 4
     la $a0, newline # Print newline
     syscall
@@ -568,7 +594,7 @@ print_parameters:
 
     jr $ra
 
-prompt_pedestrian_button:
+func_prompt_pedestrian_button:
     li $v0, 4
     la $a0, prompt_button
     syscall
@@ -594,7 +620,7 @@ prompt_pedestrian_button:
 
 
 # function to check button pressed state and change light states
-pedestrian_crossing_check:
+func_pedestrian_crossing_check:
     # save $ra
     addi $sp, $sp, -4
     sw $ra, 0($sp)
@@ -606,10 +632,10 @@ pedestrian_crossing_check:
     li $t0, 0
     sw $t0, NS_light        # NS goes red
     sw $t0, EW_light        # EW goes red
-    jal display_lights
+    jal func_display_lights
 
     lw $a0, pedestrian_delay
-    jal delay
+    jal func_delay
 
     # Print pedestrian light state
     li $v0, 4
@@ -623,7 +649,7 @@ pedestrian_crossing_check:
 
     # Delay for pedestrian crossing
     lw $a0, pedestrian_duration
-    jal delay
+    jal func_delay
 
     # Change pedestrian light to red
     li $t0, 0
@@ -639,7 +665,7 @@ pedestrian_crossing_check:
 
     # Delay for pedestrian crossing
     lw $a0, pedestrian_delay
-    jal delay
+    jal func_delay
 
     # restore $ra
     lw $ra, 0($sp)
@@ -656,18 +682,18 @@ pedestrian_crossing_check:
 
 
 # Delay subroutine
-delay:
+func_delay:
     move $t0, $a0  # Save duration
     li $v0, 30      # Get system time
     syscall
     move $t1, $a0   # Save start time
     
-delay_loop:
-    li $v0, 30      # Get current time
-    syscall
-    sub $t2, $a0, $t1  # Calculate elapsed time
-    blt $t2, $t0, delay_loop  # Loop if elapsed < duration
-    jr $ra
+    delay_loop:
+        li $v0, 30      # Get current time
+        syscall
+        sub $t2, $a0, $t1  # Calculate elapsed time
+        blt $t2, $t0, delay_loop  # Loop if elapsed < duration
+        jr $ra
 
 
 # End of simulation
