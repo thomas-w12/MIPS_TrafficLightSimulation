@@ -14,11 +14,20 @@
 
     # loop repetitions
     loop_repetitions: .word 1
+
+    # Traffic light states
+    NS_light: .word 0  # 0=red, 1=green, 2=yellow
+    EW_light: .word 1
+    next_green_light: .word 0  # Next green light state (0=NS, 1=EW)
+
+    # Button pressed state
+    button_pressed: .word 0  # 0=not pressed, 1=pressed
     
     # Messages
     newline: .asciiz "\n"
     north_south_msg: .asciiz "North-South: "
     east_west_msg: .asciiz "East-West: "
+    pedestrian_signal_msg: .asciiz "Pedestrian Signal: "
     invalid_input_msg: .asciiz "Invalid input. Please enter Y or N.\n"
     invalid_iterations_msg: .asciiz "Invalid number of iterations. Please enter a value between 1 and 10.\n"
     default_params_msg: .asciiz "Using default parameters.\n"
@@ -46,22 +55,11 @@
     prompt_pedestrian: .asciiz "Enter pedestrian crossing duration (s): "
     prompt_button: .asciiz "Do you want to press the button to request a pedestrian crossing? [Y/N]: "
 
-    
     # Traffic light colors
     red_msg: .asciiz "RED"
     green_msg: .asciiz "GREEN"
     yellow_msg: .asciiz "YELLOW"
     separator: .asciiz " | "
-
-    # Pedestrian light states
-    pedestrian_signal_msg: .asciiz "Pedestrian Signal: "
-    
-    # Traffic light states
-    NS_light: .word 0  # 0=red, 1=green, 2=yellow
-    EW_light: .word 1  # Opposite of NS
-    next_green_light: .word 0  # Next green light state (0=NS, 1=EW)
-    # Button pressed state
-    button_pressed: .word 0  # 0=not pressed, 1=pressed
 
     
 .text
@@ -101,12 +99,6 @@ start_simulation:
     
     jal func_get_params  # Get parameters from user
     
-    # Initialize light states
-    li $t0, 0
-    sw $t0, NS_light        # NS starts with red
-    li $t0, 1
-    sw $t0, EW_light        # EW starts with green
-    
 
 # simulation loop is the main loop of the program
 simulation_loop:
@@ -116,6 +108,9 @@ simulation_loop:
     beq $s0, $t0, end_simulation
 
     # check if one cycle has completed
+    # sub $t0, $s0, $s1
+    # beqz $t0, in_light_cycle # if not, continue with light cycle
+    # addi $s1, $s1, 1 # if one cycle has completed, increment loop count
     beqz $s2, in_light_cycle # if not, continue with light cycle
     jal func_prompt_pedestrian_button # and ask if user wants to press the button
     li $s2, 0 # reset pedestrian button prompt
@@ -129,6 +124,7 @@ simulation_loop:
     beq $t0, 1, ns_green
     beq $t0, 2, ns_yellow        
 
+        
     ns_red:
         lw $t0, EW_light
         beq $t0, 1, ew_green
@@ -146,7 +142,7 @@ simulation_loop:
             j simulation_loop
         
         ew_yellow:
-            # check if this yellow is before red light or before green light
+            # check if yellow is before red light or before green light
             lw $t0, next_green_light
             bnez $t0, switch_ew_to_green # if next green light is EW, switch to green
 
@@ -168,6 +164,7 @@ simulation_loop:
                 sw $t0, next_green_light # NS is next green light
                 j simulation_loop
 
+
                 skip_pedestrian_ew_yellow:
                 # Change both lights
                 li $t0, 2
@@ -177,6 +174,7 @@ simulation_loop:
                 li $t0, 0
                 sw $t0, next_green_light # NS is next green light
                 j simulation_loop
+
 
             switch_ew_to_green:
                 lw $a0, yellow_to_green
@@ -203,7 +201,7 @@ simulation_loop:
         j simulation_loop
 
     ns_yellow:
-        # check if this yellow is before red light or before green light
+        # check if yellow is before red light or before green light
         lw $t0, next_green_light
         beqz $t0, switch_ns_to_green # if next green light is EW, switch to green
 
@@ -440,7 +438,8 @@ func_adjust_parameters:
 
         valid_duration_ns:
             mul $v0, $v0, 1000  # convert to milliseconds
-            sw $v0, green_duration_ns # store green duration
+            sw $v0, green_duration_ns
+            # get green duration for east-west road
 
         light_duration_adjustment_ew:
         li $v0, 4
@@ -455,7 +454,7 @@ func_adjust_parameters:
         j light_duration_adjustment_ew
         valid_duration_ew:
             mul $v0, $v0, 1000  # convert to milliseconds
-            sw $v0, green_duration_ew # store green duration
+            sw $v0, green_duration_ew
 
         # get pedestrian duration
         light_duration_adjustment_pedestrian:
@@ -471,7 +470,7 @@ func_adjust_parameters:
         j light_duration_adjustment_pedestrian
         valid_duration_pedestrian:
             mul $v0, $v0, 1000  # convert to milliseconds
-            sw $v0, pedestrian_duration # store pedestrian duration
+            sw $v0, pedestrian_duration
 
         # Adjust yellow duration based on speed limit
         lw $t0, speed_limit_ns
