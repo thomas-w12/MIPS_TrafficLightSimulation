@@ -50,9 +50,9 @@
     prompt_speed_ns: .asciiz "Enter speed limit north-south (km/h, 30-100): "
     prompt_speed_ew: .asciiz "Enter speed limit east-west (km/h, 30-100): "
     invalid_speed_msg: .asciiz "Invalid speed limit. Please enter a value between 30 and 100.\n"
-    prompt_green_ns: .asciiz "Enter green duration for north-south road (s): "
-    prompt_green_ew: .asciiz "Enter green duration for east-west road (s): "
-    prompt_pedestrian: .asciiz "Enter pedestrian crossing duration (s): "
+    prompt_green_ns: .asciiz "Enter green duration for north-south road (s, 1-60): "
+    prompt_green_ew: .asciiz "Enter green duration for east-west road (s, 1-60): "
+    prompt_pedestrian: .asciiz "Enter pedestrian crossing duration (s, 1-60): "
     prompt_button: .asciiz "Do you want to press the button to request a pedestrian crossing? [Y/N]: "
 
     # Traffic light colors
@@ -108,9 +108,6 @@ simulation_loop:
     beq $s0, $t0, end_simulation
 
     # check if one cycle has completed
-    # sub $t0, $s0, $s1
-    # beqz $t0, in_light_cycle # if not, continue with light cycle
-    # addi $s1, $s1, 1 # if one cycle has completed, increment loop count
     beqz $s2, in_light_cycle # if not, continue with light cycle
     jal func_prompt_pedestrian_button # and ask if user wants to press the button
     li $s2, 0 # reset pedestrian button prompt
@@ -303,7 +300,6 @@ func_display_lights:
 
 # Function to get parameters from user
 func_get_params:
-    # save $ra
     addi $sp, $sp, -4
     sw $ra, 0($sp)
     # Prompt for parameter adjustment
@@ -333,154 +329,87 @@ func_get_params:
     print_params:
         jal func_print_parameters  # Print adjusted parameters
     
-    # restore $ra
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     jr $ra
 
 # Function to get number of iterations from user
 func_get_iterations:
-    # Prompt for number of iterations
-    li $v0, 4
-    la $a0, prompt_iterations
-    syscall
-    li $v0, 5
-    syscall
-    # sll $v0, $v0, 2  # Multiply by 4 to represent actual repetitions
-    sw $v0, loop_repetitions
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
 
-    # Validate iterations
-    lw $t0, loop_repetitions
-    li $t1, 1
-    blt $t0, $t1, invalid_iterations
-    li $t1, 10
-    bgt $t0, $t1, invalid_iterations
-    jr $ra
-    invalid_iterations:
-        li $v0, 4
-        la $a0, invalid_iterations_msg
-        syscall
-        j func_get_iterations
+    la $a0, prompt_iterations # Prompt message
+    li $a1, 1 # Minimum value
+    li $a2, 10 # Maximum value
+    la $a3, invalid_iterations_msg # Error message
+    jal func_validate_input # Validate number of iterations
+    sw $v0, loop_repetitions # Store validated input
     
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
     jr $ra
 
 # function to adjust light durations
 func_adjust_parameters:
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
 
     li $s1, 1 # set to 1 to indicate that parameters got modified
 
     # Get speed limit for north-south road
-    speed_adjustment_ns:
-        # Get speed limit from user
-        li $v0, 4
-        la $a0, prompt_speed_ns
-        syscall
-        
-        li $v0, 5
-        syscall
-        sw $v0, speed_limit_ns
-
-        # validate speed limit
-        lw $t0, speed_limit_ns
-        li $t1, 30
-        blt $t0, $t1, invalid_speed_ns
-        li $t1, 100
-        bgt $t0, $t1, invalid_speed_ns
-        j speed_adjustment_ew
-
-        invalid_speed_ns:
-        # Print invalid speed message
-            li $v0, 4
-            la $a0, invalid_speed_msg
-            syscall
-            j speed_adjustment_ns
+    la $a0, prompt_speed_ns # Prompt message
+    li $a1, 30 # Minimum value (in km/h)
+    li $a2, 100 # Maximum value (in km/h)
+    la $a3, invalid_speed_msg # Error message
+    jal func_validate_input # Validate speed limit for north-south road
+    sw $v0, speed_limit_ns # Store validated input
 
     # Get speed limit for east-west road
-    speed_adjustment_ew:
-        # Get speed limit from user
-        li $v0, 4
-        la $a0, prompt_speed_ew
-        syscall
-        
-        li $v0, 5
-        syscall
-        sw $v0, speed_limit_ew
+    la $a0, prompt_speed_ew # Prompt message
+    li $a1, 30 # Minimum value (in km/h)
+    li $a2, 100 # Maximum value (in km/h)
+    la $a3, invalid_speed_msg # Validate speed limit for east-west road
+    jal func_validate_input # Validate speed limit for east-west road
+    sw $v0, speed_limit_ew # Store validated input
 
-        # validate speed limit
-        lw $t0, speed_limit_ew
-        li $t1, 30
-        blt $t0, $t1, invalid_speed_ew
-        li $t1, 100
-        bgt $t0, $t1, invalid_speed_ew
-        j light_duration_adjustments
+    # get green duration for north-south road
+    la $a0, prompt_green_ns # Prompt message
+    li $a1, 1 # Minimum value (in seconds)
+    li $a2, 60 # Maximum value (in seconds)
+    la $a3, invalid_duration_msg # Error message
+    jal func_validate_input # Validate green duration for north-south road
+    mul $v0, $v0, 1000 # Convert to milliseconds
+    sw $v0, green_duration_ns # Store validated input
 
-        invalid_speed_ew:
-        # Print invalid speed message
-            li $v0, 4
-            la $a0, invalid_speed_msg
-            syscall
-            j speed_adjustment_ew
+    # get green duration for east-west road
+    la $a0, prompt_green_ew # Prompt message
+    li $a1, 1 # Minimum value (in seconds)
+    li $a2, 60 # Maximum value (in seconds)
+    la $a3, invalid_duration_msg # Error message
+    jal func_validate_input # Validate green duration for east-west road
+    mul $v0, $v0, 1000 # Convert to milliseconds
+    sw $v0, green_duration_ew # Store validated input
 
-    light_duration_adjustments: 
+    # get green duration for pedestrian
+    la $a0, prompt_pedestrian # Prompt message
+    li $a1, 1 # Minimum value (in seconds)
+    li $a2, 60 # Maximum value (in seconds)
+    la $a3, invalid_duration_msg # Error message
+    jal func_validate_input # Validate pedestrian duration
+    mul $v0, $v0, 1000 # Convert to milliseconds
+    sw $v0, pedestrian_duration # Store validated input
 
-        light_duration_adjustment_ns:
-        # get green duration for north-south road
-        li $v0, 4
-        la $a0, prompt_green_ns
-        syscall
-        li $v0, 5
-        syscall
-        bnez $v0, valid_duration_ns
-        li $v0, 4
-        la $a0, invalid_duration_msg
-        syscall
-        j light_duration_adjustment_ns
+    # Adjust yellow duration based on speed limit
+    lw $t0, speed_limit_ns
+    li $t1, 100
+    mul $t0, $t0, $t1 # speed_limit_ns * 100 ms
+    sw $t0, yellow_duration_ns
+    lw $t0, speed_limit_ew
+    mul $t0, $t0, $t1 # speed_limit_ew * 100 ms
+    sw $t0, yellow_duration_ew
 
-        valid_duration_ns:
-            mul $v0, $v0, 1000  # convert to milliseconds
-            sw $v0, green_duration_ns
-            # get green duration for east-west road
-
-        light_duration_adjustment_ew:
-        li $v0, 4
-        la $a0, prompt_green_ew
-        syscall
-        li $v0, 5
-        syscall
-        bnez $v0, valid_duration_ew
-        li $v0, 4
-        la $a0, invalid_duration_msg
-        syscall
-        j light_duration_adjustment_ew
-        valid_duration_ew:
-            mul $v0, $v0, 1000  # convert to milliseconds
-            sw $v0, green_duration_ew
-
-        # get pedestrian duration
-        light_duration_adjustment_pedestrian:
-        li $v0, 4
-        la $a0, prompt_pedestrian
-        syscall
-        li $v0, 5
-        syscall
-        bnez $v0, valid_duration_pedestrian
-        li $v0, 4
-        la $a0, invalid_duration_msg
-        syscall
-        j light_duration_adjustment_pedestrian
-        valid_duration_pedestrian:
-            mul $v0, $v0, 1000  # convert to milliseconds
-            sw $v0, pedestrian_duration
-
-        # Adjust yellow duration based on speed limit
-        lw $t0, speed_limit_ns
-        li $t1, 100
-        mul $t0, $t0, $t1 # speed_limit_ns * 100 ms
-        sw $t0, yellow_duration_ns
-        lw $t0, speed_limit_ew
-        mul $t0, $t0, $t1 # speed_limit_ew * 100 ms
-        sw $t0, yellow_duration_ew
-
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
     jr $ra
 
 
@@ -669,6 +598,54 @@ func_delay:
         sub $t2, $a0, $t1  # Calculate elapsed time
         blt $t2, $t0, delay_loop  # Loop if elapsed < duration
         jr $ra
+
+# Function to validate user input within a range
+# Arguments:
+#   $a0 - Prompt message address
+#   $a1 - Minimum valid value
+#   $a2 - Maximum valid value
+#   $a3 - Error message address
+# Returns:
+#   $v0 - Validated user input
+func_validate_input:
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+
+    add $t2, $zero, $a0  # Copy prompt message address to $t2
+
+    validate_input_loop:
+        # Print the prompt message
+        li $v0, 4
+        la $a0, ($t2)
+        syscall
+
+        # Get user input
+        li $v0, 5
+        syscall
+        move $t0, $v0  # Save user input
+
+        # Validate input (check if input >= min)
+        move $t1, $a1  # Minimum value
+        blt $t0, $t1, invalid_input
+
+        # Validate input (check if input <= max)
+        move $t1, $a2  # Maximum value
+        bgt $t0, $t1, invalid_input
+
+        # Input is valid, return it
+        move $v0, $t0
+        lw $ra, 0($sp)
+        addi $sp, $sp, 4
+        jr $ra
+
+    invalid_input:
+        # Print the error message
+        li $v0, 4
+        la $a0, ($a3)
+        syscall
+
+        # Loop back to prompt
+        j validate_input_loop
 
 
 # End of simulation
